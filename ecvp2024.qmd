@@ -58,11 +58,16 @@ theme_set(theme_transparent())
 - Example 2: more complex multi-level models, model fit problems, inference, publication plotting
 - Example 3: calculating psychophysical thresholds using multi-level models
 
+. . .
+
+Course materials available [on Github](https://github.com/scienceanna/ecvp2024_ml).
+
 ## What's our approach?
 
 - It is really easy to end up working with statistical techniques we find a bit mystifying
 - We want to take a step back and give you a bit more of an intuition about what we are actually doing when we fit mixed effects models
 - Focus on trying to understand the broad points
+
 
 ## Introductions
 
@@ -1039,4 +1044,10 @@ ppt_bootstrap_estimate$summary
 
 - Mixed models have benefits for calculating psychophysical curves - can take into account information about trial repetitions, subject-specific variability, can easily assess goodness of fit
 - Lots of helpful tutorials available [here](https://mixedpsychophysics.wordpress.com/)
+
+## Final summary
+
+- We (hopefully) now have time to do more workbook exercises
+- Do ask us any questions you have! (If not now, find us during the conference)
+
 
