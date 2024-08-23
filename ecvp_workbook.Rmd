@@ -1,0 +1,120 @@
+---
+title: "ECVP Workshop Workbook"
+author: "Anna Hughes"
+date: "2024-08-09"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(lme4)
+library(MixedPsy)
+
+```
+
+# Workshop section: part I
+
+## Option 1: review material
+
+If a lot of this material is new to you, we suggest you spend this time reviewing Example 1 and making sure you are happy with it. If you have any questions, please do ask us! We are also very happy to help you think about how these techniques might be useful in your own work.
+
+## Option 2: getting stuck into some data
+
+One of the trickiest things about data analysis is getting your data ready. If you feel confident with all the material we've covered so far, have a look at this slightly trickier dataset which is much more 'raw' and contains some very common data processing challenges. It's data from 23 participants who completed a foraging task, where they had to collect 32 targets on each trial, in a number of different conditions. The data can be found in the foraging folder.
+
+- Each person has their data in a separate csv file. Can you work out how to read all of them into one tibble?
+- We don't want to analyse their practice data. Can you work out how to filter out these rows?
+- Sometimes people made a mistake on a given trial (they accidentally clicked a distractor item). These trials then terminated and the participant repeated the trial. The column `attempts` tells us how many times they had tried a particular trial. For a given trial, we want to take the maximum attempt number (as this should be the one they completed). Can you work out a way to do this?
+- The reaction times in the `rt` column are cumulative within each trial. However, we would like to know how long it took between each target. Can you work out a way to calculate this?
+- Create a plot to assess whether the average time between targets differed between the different conditions. Display both a measure of the average and also individual data points (ideally joined together across conditions so it is easy to see whether different individuals showed the same patterns!)
+
+```{r, include = FALSE}
+
+data <-
+  list.files(path = "data/foraging/",
+             pattern = "*.csv", 
+             full.names = T) %>% 
+  map_df(~read_csv(.)) 
+
+# take only the highest number attempt 
+data %>%
+  group_by(person, condition, trial) %>%
+  filter(attempt == max(attempt)) -> data
+
+# filter out practice trials (for now?)
+data %>%
+  filter(block != "practice") %>%
+  mutate(trial = trial + 1) -> data
+
+
+# rt data
+data_rt <- data %>%
+  mutate(rt_lag = lag(rt),
+         rt_lag_diff = rt - rt_lag) %>%
+  group_by(person, condition) %>%
+  summarise(meanrt = mean(rt_lag_diff, na.rm = TRUE))
+
+# rt data averaged across participants
+
+data_rt_av <- data_rt %>%
+  group_by(condition) %>%
+  summarise(meanmeanrt = mean(meanrt, na.rm = TRUE))
+
+ggplot(data_rt, aes(condition, meanrt)) + 
+  geom_point(data = data_rt_av, aes(condition, meanmeanrt), size = 5) + 
+  geom_point(alpha = 0.25) +
+  geom_path(aes(group = person), alpha = 0.25) +
+  ylab('Mean reaction time') +
+  xlab('Line condition') +
+  scale_x_discrete(labels = c('None','Horizontal','Vertical')) +
+  theme_bw()
+
+```
+
+# Workshop section II
+
+# Option 1: review material, apply to your own problems
+
+Some of you may have data you wish to try modelling within a mixed model framework. We are very happy to help provide advice and support with this - just ask.
+
+# Option 2: getting stuck into some data
+
+This dataset (`Case14.csv`) has been lightly edited from Example 14 from here: https://osf.io/4bvqj/.
+
+This is simulated data from 10 participants who were tested on the Ponzo illusion, using the method of constant stimuli. The participants were presented with a picture of a corridor, and at the "far" end a reference stimulus was provided, which was a circle of a fixed size. At the "near" end, a test circle was presented, which varied in size: from -50% to +50% of the reference size in steps of 10%. In each trial, the participant answered whether the test stimulus looked bigger or smaller than the reference.
+
+Using the skills you have learned, plot this data and assess what size of Ponzo illusion we see in this dataset. (Note that the data is formatted slightly differently from the example provided during the lecture, and you will need to think about how to deal with this!)
+
+```{r, eval = FALSE, include = FALSE}
+
+d <- read_csv('data/Case14.csv')
+
+m <- glmer(response ~ diff + (diff|ppt), 
+  family = binomial(link = "probit"), data = d)
+
+d_sim <- tibble(
+  diff = rep(seq(from = -50, to = 50, by = 10),  times = 10),
+  ppt = rep(c(1:10), each = 11)
+)  
+
+d_sim$prediction <- predict(m, type = "response", newdata = d_sim)
+
+d_summary <- d %>%
+  group_by(diff, ppt) %>%
+  summarise(tot = sum(response),
+            proportion = tot/100)
+
+ggplot(d_summary, aes(x = diff, y = proportion)) +
+  ylab("Probability") + xlab("Difference") +
+  geom_point() +
+  geom_line(data = d_sim, aes(x = diff, y = prediction)) +
+  facet_wrap(~ ppt, ncol = 3) +
+  scale_x_continuous(breaks= seq(-50, 50, by = 20))
+
+bootstrap_estimate <- pseMer(m)
+bootstrap_estimate$summary
+
+```
+

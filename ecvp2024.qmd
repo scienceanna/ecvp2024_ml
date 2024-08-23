@@ -1,0 +1,1042 @@
+---
+title: "Multi-level modelling and data visualisation in R"
+author: "A.D.F Clarke & A.E. Hughes"
+format:
+  revealjs: 
+    theme: serif
+    incremental: true
+    footer: "Clarke & Hughes 2024"
+    slide-number: true
+    preview-links: auto
+    chalkboard: true
+editor: source
+execute:
+  echo: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.align = 'center', dev = "png", dev.args=list(bg="transparent"))
+library(tidyverse)
+library(patchwork)
+
+set.seed(2024)
+options(digits = 3)
+
+# setting a transparent background theme
+theme_transparent <- function(){ 
+  
+  theme_bw() %+replace%  
+    
+    theme(
+      panel.background = element_rect(fill='transparent'), #transparent panel bg
+      plot.background = element_rect(fill='transparent', color=NA), #transparent plot bg
+      panel.grid.major = element_blank(), #remove major gridlines
+      panel.grid.minor = element_blank(), #remove minor gridlines
+      legend.background = element_rect(fill='transparent'), #transparent legend bg
+      legend.box.background = element_rect(fill='transparent'), #transparent legend panel
+      text=element_text(size=16)
+    )
+}
+
+theme_set(theme_transparent())
+```
+
+```{css, echo=FALSE}
+.small-code div.cell-output-stdout {
+  font-size: 0.8em;
+}
+
+.tiny-code div.cell-output-stdout {
+  font-size: 0.70em;
+}
+```
+
+
+## Course Overview
+
+- Example 1: why multi-level models, random intercepts, prediction, plotting
+- Example 2: more complex multi-level models, model fit problems, inference, publication plotting
+- Example 3: calculating psychophysical thresholds using multi-level models
+
+## What's our approach?
+
+- It is really easy to end up working with statistical techniques we find a bit mystifying
+- We want to take a step back and give you a bit more of an intuition about what we are actually doing when we fit mixed effects models
+- Focus on trying to understand the broad points
+
+## Introductions
+
+![](images/alasdair.jpg){width=30%}
+<small>
+_Alasdair studied mathematics at the University of Warwick, before obtaining a PhD in Computer Science from Heriot-Watt University. Since then, he has worked at School of Informatics at the University of Edinburgh, and the School of Psychology at the University of Aberdeen, before joining the psychology department at the University of Essex in 2016. His research interests include eye movements during visual search and decision making. Recently, he has been writing a statistics textbook which he will plug now._
+</small>
+
+
+## Introductions
+
+![](images/anna.jpg){width=30%}
+<small>
+_Anna did her PhD at the University of Cambridge, has since worked at University College London and the University of Exeter, and joined the University of Essex as a lecturer in 2020. Her research focuses on a variety of questions about how humans and other animals might use visual information to search and interact with the world - including how best to optimise camouflage in multiple environments, and exactly why zebras might have stripes.  She really likes R, the tidyverse, and very large cups of tea._
+</small>
+
+# Example 1: Tips from the Top
+
+## Levari (2022): Tips from the Top
+
+- Are people who are good at a task able to give more useful advice to help others complete the same task?
+
+- In part of their study, 78 participants completed a Word search game six times.
+
+- Do participants get better with practice? 
+
+. . .
+
+_Levari, D. E., Gilbert, D. T., & Wilson, T. D. (2022). Tips from the top: Do the best performers really give the best advice? Psychological Science, 33(5), 685-698._
+
+## Data Import
+
+```{r}
+d <- read_csv("data/study2_advisor_improvement.csv",
+              col_types = "fii")
+```
+
+It is good practice to use `col_types` to make sure `read_csv()` reads in the data in the correct format. 
+
+
+```{r, echo=FALSE}
+d
+```
+
+## A simple plot
+
+```{r}
+ggplot(d, aes(roundnum, score)) + 
+  geom_point()
+```
+
+## Improving the plot
+
+```{r}
+ggplot(d, aes(roundnum, score)) + 
+  geom_jitter(height = 0, width = 0.1, alpha = 0.25)
+```
+
+## Maybe box plots are better?
+
+```{r}
+ggplot(d, aes(roundnum, score)) + 
+  geom_boxplot()
+```
+
+- The $x$-axis is numeric, rather than categorical, so `geom_boxplot()` doesn't quite do what we expect!
+
+## Maybe box plots are better?
+
+```{r}
+ggplot(d, aes(factor(roundnum), score)) + 
+  geom_boxplot()
+```
+
+## Improve axis title
+
+```{r}
+ggplot(d, aes(factor(roundnum), score)) + 
+  geom_boxplot() + scale_x_discrete("round number")
+```
+
+- Are people getting better over time?
+
+## No Pooling - Linear Regression
+
+```{r}
+m1 <- lm(score ~ roundnum, d)
+summary(m1)
+```
+
+## Total Pooling - Aggregate
+
+```{r}
+d %>% group_by(roundnum) %>%
+  summarise(score = mean(score)) -> dp
+```
+
+```{r, echo=FALSE}
+ggplot(dp, aes(roundnum, score)) + geom_point()
+```
+
+## Total Pooling - Aggregate
+
+```{r}
+m2 <- lm(score ~ roundnum, data = dp)
+summary(m2)
+```
+
+## Comparison
+
+- The two approaches give similar estimates for the intercept (8.8) and slope (0.32).
+- However, the standard errors (and hence $t$ and $p$-values) are quite different.
+- The $R^2$ values are wildly different: 0.010 v 0.895!
+- This is because we are throwing away a lot of the variance in the second model.
+
+## We have a lot of variance
+
+```{r}
+ggplot(dp, aes(roundnum, score)) + 
+  geom_smooth(method = lm, fill = "purple") + geom_point(size = 5, colour = "darkviolet") +
+  geom_jitter(data = d, height = 0, width = 0.1, alpha = 0.25) 
+```
+
+## What are individuals doing?
+
+Linking up all the points leads to a cluttered plot
+
+```{r}
+ggplot(d, aes(roundnum, score)) + 
+  geom_point(data = d, alpha = 0.25) +
+  geom_path(aes(group = participant), alpha = 0.25)
+```
+
+## What are individuals doing?
+
+We can make things easier to parse with highlights:
+
+. . .
+
+::: {.nonincremental}
+- use the `sample()` function to randomly select 6 people. 
+
+```{r}
+ids <- sample(levels(d$participant), 6)
+```
+
+```{r, echo=FALSE}
+ids
+```
+:::
+. . .
+
+::: {.nonincremental}
+- then we can `filter()` to get their data
+
+```{r}
+six_people <- filter(d, participant %in% ids)
+```
+:::
+
+## What are individuals doing?
+
+```{r}
+ggplot(d, aes(roundnum, score)) + 
+  geom_point(data = d, alpha = 0.25) +
+  geom_path(aes(group = participant), alpha = 0.25) +
+  geom_path(data = six_people, aes(colour = participant), size = 2)
+```
+
+## Is the best-fit line any good?
+
+```{r, echo=FALSE}
+ggplot(d, aes(roundnum, score)) + geom_point(data = d, alpha = 0.25) +
+  geom_path(aes(group = participant), alpha = 0.1) +
+  geom_smooth(method = lm, colour = "black", size = 2, se=F) +
+  geom_path(data = six_people, aes(colour = participant), size = 1) 
+```
+
+It is clear that the residuals are clustered... 
+
+- they are different for different people.
+
+## Fitting an intercept to each person
+
+::: {.nonincremental}
+- Add `participant` as a term in our model!
+:::
+
+```{r}
+m3 <- lm(score ~ 0 + participant + roundnum, data = d)
+```
+
+```{r}
+#| echo: false
+summary(m3)
+```
+
+## This fits great!
+
+```{r, echo=FALSE}
+ggplot(six_people, aes(roundnum, score, colour = participant)) + 
+  geom_point() +
+  geom_smooth(method = lm, size = 1, se=F) 
+```
+
+## Disadvantages of this approach
+
+This model fits the data fantastically well: $R^2=0.96$!
+
+However, there are a few downsides:
+
+- It has 80 parameters! This seems overly complex.
+- If a new participant comes along, we have no way to estimate their performance.
+
+. . .
+
+The solution is to model the variability in intercepts. 
+
+## Multi-level Models 
+
+::: {.nonincremental}
+- For participant $k$ we fit:
+
+$$y^k = (a + a_k) + bx + \epsilon$$
+:::
+
+::: {.nonincremental}
+- We assume that the $a^k$ are normally distributed:
+
+$$a_k \sim \mathcal{N}(0, \theta_a)$$
+:::
+
+- This model has three main parameters: $a, b$ and $\theta_a$. 
+
+## Multi-level Models with `lme4`
+
+- `lme4` is a popular package for R that allows us to fit these models.
+- The main function is `lmer()`: *linear mixed effect regression*.
+- The syntax is similar to the usual `lm()` syntax.
+
+. . .
+
+```{r}
+library(lme4)
+
+m4 <- lmer(score ~ roundnum + (1|participant), data = d)
+```
+
+## `summary()` for `lmer`
+
+```{r echo=FALSE}
+summary(m4)
+```
+
+- The output does not give $p$-values or model fit criteria. 
+
+## Random Effects
+
+- The main new part of the model summary is an overview of the *random effects*. 
+- In our case, these are the intercepts that vary from person to person.
+
+. . .
+
+```{r}
+summary(m4)$varcor
+```
+
+## Facet Plots
+
+```{r, echo=FALSE}
+ggplot(d, aes(roundnum, score)) + 
+  geom_path()  +
+  geom_abline(intercept = 8.8, slope = 0.317, colour = "darkblue", linetype = 2) + 
+  facet_wrap(~participant, nrow = 4) +
+  theme(strip.text = element_blank())
+```
+
+## Using `predict()` 
+
+If we call `predict()` with no `newdata` argument, it will make a prediction for every point in our training data
+
+```{r}
+d$p <- predict(m4)
+```
+
+- The `predict()` function for multi-level models is quite versatile and can take many different options
+- For now, we can add these predictions to our plot as another layer:
+
+. . . 
+```{r}
+#| eval: false
+ geom_abline(intercept = 8.8, slope = 0.317, colour = "darkblue", linetype = 2)
+```
+
+## Our Model Predictions
+
+```{r}
+#| echo: false
+ggplot(d, aes(roundnum, score)) + 
+  geom_path()  +
+  geom_abline(intercept = 8.8, slope = 0.317, colour = "darkblue", linetype = 2) + 
+  geom_path(aes(y = p), colour = "darkred", linewidth = 1.5) + 
+  facet_wrap(~participant, nrow = 4) +
+  theme(strip.text = element_blank())
+
+```
+
+## Distribution of Intercepts
+
+```{r}
+ranef(m4) %>%
+  as_tibble() %>%
+  ggplot(aes(condval)) + 
+  geom_histogram(bins = 16, 
+                 colour = "black")
+  
+```
+
+## Summary
+
+- The random intercept model allows us to model more of the variance in the data without having too many new parameters.
+
+- We could use this model to simulate a whole new set of participants.
+
+- Facet plots and highlights are useful to to visualise what is going on.
+
+- Remember to think about the random effect structure in your model - this is often overlooked when reporting models.
+
+## Workbook
+
+- We'll now have a few minutes for you to do some coding yourselves
+
+- Either review the material so far (recommended if this is all fairly new to you)
+
+- Or there's a data processing/plotting challenge
+
+- Please ask us questions!
+
+# Example 2: In-out asymmetry in crowding
+
+## In-out asymmetry
+
+Do peripheral flankers interfere more with a target than foveal flankers? 
+
+. . .
+
+Does this effect depend on location?
+
+. . .
+
+_Chakravarthi R, Rubruck J, Kipling N, Clarke ADF. Characterizing the in-out asymmetry in visual crowding. J Vis. 2021 Oct 5;21(11):10_
+
+. . . 
+
+Data for this example available at [https://osf.io/jdfmn](https://osf.io/jdfmn).
+
+## Thresholds and data import
+
+Thresholds were calculated from QUEST in MATLAB.
+
+```{r}
+
+dat <- R.matlab::readMat("data/allthresholds50.mat")
+  
+```
+
+## Tidying your data
+
+We won't dwell on this today, but you will almost certainly find your raw data needs some processing before analysis.
+
+This can be a time consuming process! But nearly always worth the time investment.
+
+```{r, include = FALSE}
+  
+cond_names <- c('b', 'r', 'p')
+fla_locs <- c('n', 'i', 'o')
+target_locs <- c('r', 'u', 'l', 'd')
+
+# create an empty dataframe to put data in
+d <- tibble(
+  observer = as.numeric(),
+  des = as.character(),
+  fla = as.character(),
+  loc = as.character(),
+  thr = as.numeric())
+           
+# loop over everything and put the relevant numbers into the dataframe 
+for (i in 1:3) {
+  for (j in 1:4) {
+    for (k in 1:3) {
+      for (p in 1:dim(dat$allThresh)[4]) {
+        
+        d <- bind_rows(d, tibble(
+          observer = p,
+          des = cond_names[i],
+          loc = target_locs[j],
+          fla = fla_locs[k],
+          thr = dat$allThresh[i,j,k,p])) -> d
+      }
+    }
+  }
+}
+
+rm(dat)
+
+# convert some variables to factors
+d %>% mutate(
+  des = as_factor(des),
+  fla = as_factor(fla),
+  loc = as_factor(loc),
+  des = fct_relevel(des, "b", "p")) -> d
+
+```  
+
+## Looking at the data
+
+```{r}
+  
+summary(d)
+  
+```
+
+- **des**: design (we're not going to worry about this today)
+- **fla**: flankers (*n*one, *i*nwards, *o*utwards)
+- **loc**: location (*u*p, *d*own, *l*eft, *r*ight)
+
+## Missing data
+
+We have some non-finite threshold values. We probably just want to remove them.
+
+```{r}
+  
+d %>% filter(is.finite(thr)) -> d
+  
+```
+
+## Some basic plotting
+
+```{r}
+  
+ggplot(d, aes(fla, thr)) + geom_boxplot()
+  
+```
+
+- Low thresholds when there's no flanker
+- Thresholds increase when adding a flanker, but more if the flanker is outwards
+
+## Some basic plotting
+
+```{r}
+  
+ggplot(d, aes(loc, thr, fill = fla)) + geom_boxplot()
+  
+```
+
+- Maybe some differences depending on location? Up and down have larger thresholds in the inside condition?
+
+## Fitting a multi-level model
+
+We want to take into account the fact that we are running a repeated measures design, where each participant takes part in multiple trials.
+
+- How does threshold vary with location?
+- How does the effect of threshold vary with flanker type?
+- Take into account multiple data points for each observer using random intercepts
+
+## Fitting a multi-level model
+
+```{r}
+  
+m <- lmer(thr ~ loc + loc:fla + (1|observer), data = d)
+summary(m)
+  
+```
+
+## Fitting a multi-level model: random slopes
+
+We can do better than this: each person may not only have their own variable intercept, but their own variable **slope** i.e. how their thresholds are affected by the fixed factors of interest.
+
+## Fitting a multi-level model: random slopes
+
+```{r}
+  
+m2 <- lmer(thr ~ loc + loc:fla + (loc + fla|observer), data = d)
+summary(m2)  
+
+```
+
+## Fitting a multi-level model: random slopes
+
+Why could we not do this in Example 1?
+
+. . .
+
+We only had one data point per participant per treatment level: this means between-participant variation in how they are affected by the within-participant predictor is confounded with random error (i.e. measurement error) and therefore we can only fit random intercepts.
+
+. . .
+
+Where possible, design your experiments with multiple repeats per treatment level!
+
+## Fitting a multi-level model: improving the model
+
+For a model with categorical factors, the default R behaviour where the baseline category is labelled as the intercept can be unhelpful.
+
+## Fitting a multi-level model: improving the model
+
+```{r}
+  
+m3 <- lmer(thr ~ 0 + loc + loc:fla + (0 + loc + fla|observer), data = d)
+summary(m3) 
+  
+```
+
+## Fitting a multi-level model: improving the model
+
+Is a Gaussian distribution a good model for thresholds? Thresholds can't be negative!
+
+We could use a **log-normal** distribution instead.
+
+Note this means we will need to switch to a new package for multi-level modelling: `glmmTMB` (as `lme4` doesn't have this distribution built in).
+
+## Fitting a multi-level model: improving the model
+
+```{r}
+  
+library(glmmTMB)  
+  
+m4 <- glmmTMB(thr ~ 0 + loc + loc:fla + (0 + loc + fla|observer), 
+  family = lognormal, data = d) 
+summary(m4)
+  
+```
+
+## Model fit problems
+
+Very common to get singular fits, models failing to converge etc.
+
+There can be problems with the **model specification**:
+
+- Overly complex with many interacting variables
+- Collinear predictors that measure related concepts
+- Including between-subjects variables in the random effect structure
+
+## Model fit problems
+
+Can also be problems with the **data**:
+
+- Not enough data to fit a complex model
+- Variables on different scales
+- Very noisy, some weird responses
+- Floor/ceiling effects
+
+## Model fit problems
+
+- Simplify your model as a last resort!
+- Ideally, simulate your data before conducting your experiment to test if your question is feasible
+- Bayesian models can help avoid some of the pitfalls of LMMs (but have their own challenges!)
+
+## Model inference
+
+You may have noticed `lme4` doesn't automatically give *p*-values.
+
+This is because it's not immediately clear how to count the degrees of freedom. There is no one correct, agreed up on way of doing this!
+
+- Do we count every unique, individual data point?
+- Maybe it would be better to count the number of participants?
+- Maybe we should count the number of random effects
+- Or some combination??
+
+## Model inference
+
+- Satterthwaite approximation via `lmerTest`
+- Model comparison via likelihood ratio test
+- `glmmTMB` gives Wald p values (but these can be quite anti-conservative!)
+
+. . .
+
+Always think: do you need *p*-values? What are you trying to say with them?
+
+## Making model predictions
+
+These are **population-level** predictions.
+
+. . .
+
+Deterministic - always the same for any given combination of predictors.
+
+
+```{r}
+  
+d$p <- predict(m4, type = "response")
+head(d)
+  
+```
+
+
+## Making model predictions
+
+We can make predictions for 'new participants'...
+
+```{r}
+  
+new_data <- tibble(
+  observer = c(100, 100, 100),
+  des = c("b", "b", "b"),
+  fla = c("n", "i", "o"),
+  loc = c("r", "r", "r")
+)
+  
+predict(m4, newdata = new_data, type = "response", allow.new.levels = TRUE)
+  
+```
+
+## Making model predictions
+
+... but they will always be the same (random effects are set to zero!)
+
+```{r}
+  
+new_data <- tibble(
+  observer = c(101, 101, 101),
+  des = c("b", "b", "b"),
+  fla = c("n", "i", "o"),
+  loc = c("r", "r", "r")
+)
+  
+predict(m4, newdata = new_data, type = "response", allow.new.levels = TRUE)
+  
+```
+
+## Making model simulations
+
+I.e. predictions that take the **random effects** into account.
+
+```{r}
+  
+simulations <- simulate(m4, nsim = 100, re.form=NULL, allow.new.levels = TRUE)  
+  
+simulations <- simulations %>%
+  pivot_longer(sim_1:sim_100, names_to = "sim", values_to = "s")
+  
+d_sim <- d %>% slice(rep(1:n(), each = 100))
+
+d_sim$s <- simulations$s
+d_sim$group <- simulations$sim
+
+```
+
+## Using model simulations for inference
+
+```{r}
+  
+d_predict <- d_sim %>%
+  select(-thr, - p) %>%
+  pivot_wider(names_from = fla, values_from = s) %>%
+  mutate(prob_nlowest = n < mean(i+o, na.rm = TRUE),
+  prob_ilessthano = i < o, na.rm = TRUE) 
+
+# What percentage have no flankers as the lowest threshold?
+mean(d_predict$prob_nlowest)
+# What percentage have inner flankers as a lower threshold than outer flankers?
+mean(d_predict$prob_ilessthano, na.rm = TRUE)
+  
+```
+
+## Plotting your model fit
+
+First we write a little function to create better variable names for plotting.
+
+```{r}
+  
+short_to_long_names <- function(d) {
+  d %>% rename(
+    flanker = "fla",
+    location = "loc",
+    design = "des",
+    threshold = "thr") %>%
+    mutate(
+      flanker = fct_recode(flanker, none = "n", inwards = "i", outwards = "o"),
+      location = fct_recode(location, up = "u", left = "l", right = "r", down = "d"),
+      design = fct_recode(design, precued = "p", randomised = "r", blocked = "b")) -> d
+    
+  return(d)
+}
+  
+```
+
+## Plotting your model fit
+
+We use our function to do some setting up.
+
+```{r}
+  
+d_plt <- d %>%
+  short_to_long_names() %>%
+  mutate(
+    x = 0, y= 0,
+    x = if_else(location == "right", threshold, x),
+    x = if_else(location == "left", -threshold,x ),
+    y = if_else(location == "up",  threshold, y),
+    y = if_else(location == "down",  -threshold, y)
+  )
+  
+d_plot <- d %>%
+  mutate(thr =predict(m4, type = "response")) %>%
+  short_to_long_names() %>%
+   mutate(
+    threshold = if_else(location %in% c("down", "left"), -threshold, threshold))
+  
+```
+
+## Plotting your model fit
+
+We'll begin by plotting the up and down data.
+
+```{r}
+
+plt <- ggplot() + 
+    geom_jitter(data = filter(d_plt, 
+                              location %in% c("up", "down"),
+                              flanker %in% c("none", "inwards", "outwards")) , 
+                aes(x, y, group = flanker), 
+                width = .2, height = 0, alpha = 0.5, colour = "darkred", shape = 4)
+  
+```
+
+## Plotting your model fit
+
+```{r}
+  
+plt
+  
+```
+
+## Plotting your model fit
+
+We can then add the left and right data.
+
+```{r}
+
+plt <- ggplot() + 
+    geom_jitter(data = filter(d_plt, 
+                              location %in% c("up", "down"),
+                              flanker %in% c("none", "inwards", "outwards")) , 
+                aes(x, y, group = flanker), 
+                width = .2, height = 0, alpha = 0.5, colour = "darkred", shape = 4)  +
+    geom_jitter(data = filter(d_plt,
+                              location %in% c("left", "right"),
+                              flanker %in% c("none", "inwards", "outwards")) , 
+            aes(x, y, group = flanker), 
+            width = 0, height = 0.2, alpha = 0.5, colour = "darkred", shape = 4) 
+  
+```
+
+## Plotting your model fit
+
+```{r}
+  
+plt
+  
+```
+
+## Plotting your model fit
+
+We will add the model predictions (as a violin plot).
+
+```{r}
+  
+plt <- ggplot() + 
+    geom_jitter(data = filter(d_plt, 
+                              location %in% c("up", "down"),
+                              flanker %in% c("none", "inwards", "outwards")) , 
+                aes(x, y, group = flanker), 
+                width = .2, height = 0, alpha = 0.5, colour = "darkred", shape = 4)  +
+    geom_jitter(data = filter(d_plt,
+                              location %in% c("left", "right"),
+                              flanker %in% c("none", "inwards", "outwards")) , 
+            aes(x, y, group = flanker), 
+            width = 0, height = 0.2, alpha = 0.5, colour = "darkred", shape = 4) +
+    geom_violin(data = filter(d_plot, 
+                              location %in% c("up", "down"),
+                              flanker %in% c("none", "inwards", "outwards")), 
+                aes(x = 0, y = threshold, group = location),
+                width = 1, alpha = 0.33, trim = FALSE,
+                position =  position_identity(),
+                fill = "black") + 
+    geom_violin(data = filter(d_plot, 
+                              location %in% c("left", "right"),
+                              flanker %in% c("none", "inwards", "outwards")), 
+                aes(x = threshold, y= 0, group = location),
+                width = 1, alpha = 0.33, trim = FALSE,
+                position =  position_identity(),
+                fill = "black")
+
+```
+
+## Plotting your model fit
+
+```{r}
+  
+plt
+  
+```
+
+## Plotting your model fit
+
+Finally, we'll split the plot into different facets for each flanker type.
+
+```{r}
+  
+plt <- ggplot() + 
+    geom_jitter(data = filter(d_plt, 
+                              location %in% c("up", "down"),
+                              flanker %in% c("none", "inwards", "outwards")) , 
+                aes(x, y, group = flanker), 
+                width = .2, height = 0, alpha = 0.5, colour = "darkred", shape = 4)  +
+    geom_jitter(data = filter(d_plt,
+                              location %in% c("left", "right"),
+                              flanker %in% c("none", "inwards", "outwards")) , 
+            aes(x, y, group = flanker), 
+            width = 0, height = 0.2, alpha = 0.5, colour = "darkred", shape = 4) +
+    geom_violin(data = filter(d_plot, 
+                              location %in% c("up", "down"),
+                              flanker %in% c("none", "inwards", "outwards")), 
+                aes(x = 0, y = threshold, group = location),
+                width = 1, alpha = 0.33, trim = FALSE,
+                position =  position_identity(),
+                fill = "black") + 
+    geom_violin(data = filter(d_plot, 
+                              location %in% c("left", "right"),
+                              flanker %in% c("none", "inwards", "outwards")), 
+                aes(x = threshold, y= 0, group = location),
+                width = 1, alpha = 0.33, trim = FALSE,
+                position =  position_identity(),
+                fill = "black") +
+      coord_fixed(xlim = c(-5, 5), ylim = c(-5, 5)) +
+    scale_x_continuous("Threshold (degrees)") + 
+    scale_y_continuous("Threshold (degrees)") +
+    facet_grid(~ flanker)
+  
+```
+
+## Plotting your model fit
+
+```{r}
+  
+plt
+  
+```
+
+## Summary
+
+- Random effects structures can include both slopes and intercepts
+- Model fit problems are (unfortunately) common - think carefully about your data collection and model structure
+- Many approaches to inference - what question are you trying to ask?
+- Build up publication-ready plots slowly!
+
+# Psychophysics
+
+## Psychophysics as multi-level models
+
+- In the previous example, our data consisted of pre-computed thresholds
+- However, we can use multi-level models to compute our psychometric thresholds
+- [Modelling psychophysical data at the population level](https://jov.arvojournals.org/article.aspx?articleid=2192152)
+
+## Simulating data
+
+We are using simulated data from the `MixedPsy` package for simplicity here.
+
+```{r}
+  
+library(MixedPsy)
+  
+d <- simul_data
+head(d)
+  
+```
+
+## Fitting a model
+
+```{r}
+
+# using lme4  
+m <- glmer(cbind(Longer, Total - Longer) ~ X + (X|Subject), 
+  family = binomial(link = "probit"), data = d)
+
+# using glmmTMB
+m2 <- glmmTMB(cbind(Longer, Total - Longer) ~ X + (X|Subject), 
+  family = binomial(link = "probit"), data = d)  
+
+```
+
+## Model summary
+
+```{r}
+  
+summary(m)
+  
+```
+
+## Setting up data for prediction
+
+```{r}
+  
+d_sim <- tibble(
+  X = rep(seq(from = 40, to = 120, by = 10),  times = 8),
+  Subject = rep(c("S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8"), each = 9)
+)  
+  
+```
+
+## Making predictions
+
+```{r}
+  
+d_sim$prediction <- predict(m, type = "response", newdata = d_sim)
+  
+```
+
+## Plotting data and model predictions
+
+```{r}
+ 
+ggplot(d, aes(x = X, y = Longer/Total)) +
+  ylab("Probability") + xlab("X") +
+  geom_point() +
+  geom_line(data = d_sim, aes(x = X, y = prediction)) +
+  facet_wrap(~ Subject, ncol = 3) +
+  scale_x_continuous(breaks= seq(40, 120, by = 20))
+  
+```
+
+## PSEs 
+
+```{r}
+
+-fixef(m)[1]/fixef(m)[2]
+
+# or there are automatic ways to do these things
+bootstrap_estimate <- pseMer(m)
+bootstrap_estimate$summary
+  
+```
+
+## PSEs by participant
+
+```{r}
+  
+ppt <- 8
+
+-(fixef(m)[1]+ranef(m)$Subject[ppt,1])/(fixef(m)[2]+ranef(m)$Subject[ppt,2])
+
+  
+```
+## PSEs by participant, bootstrapped
+
+```{r}
+  
+fun2mod = function(mer.obj){
+#allocate space: we'll just work out subj 1 and 2 for now
+jndpse = vector(mode = "numeric", length = 2)
+names(jndpse) = c("ppt1", "ppt2")
+jndpse[1] = -(fixef(mer.obj)[1]+ranef(mer.obj)$Subject[1,1])/(fixef(mer.obj)[2]+ranef(mer.obj)$Subject[1,2]) #ppt1
+jndpse[2] = -(fixef(mer.obj)[1]+ranef(mer.obj)$Subject[2,1])/(fixef(mer.obj)[2]+ranef(mer.obj)$Subject[2,2]) #ppt2
+return(jndpse)
+}
+  
+ppt_bootstrap_estimate <- pseMer(m, B = 100, FUN = fun2mod)
+ppt_bootstrap_estimate$summary
+
+    
+```
+
+## Summary
+
+- Mixed models have benefits for calculating psychophysical curves - can take into account information about trial repetitions, subject-specific variability, can easily assess goodness of fit
+- Lots of helpful tutorials available [here](https://mixedpsychophysics.wordpress.com/)
+
